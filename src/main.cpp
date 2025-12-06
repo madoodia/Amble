@@ -1,6 +1,6 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
-#include <QQuickWindow> // <--- ADD THIS
+#include <QQuickWindow>
 #include "CircuitViewport.h"
 
 int main(int argc, char* argv[])
