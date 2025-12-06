@@ -65,16 +65,19 @@ void CircuitRenderer::synchronize(QQuickFramebufferObject* item)
     auto* vp = static_cast<CircuitViewport*>(item);
 
     QSize newSize = vp->size().toSize();
+    QColor newGridColor = vp->gridColor();
 
-    if (newSize != m_viewportSize || !qFuzzyCompare(m_gridSize, vp->gridSize()))
+    if (newSize != m_viewportSize || !qFuzzyCompare(m_gridSize, vp->gridSize()) || newGridColor != m_gridColor)
     {
         m_gridDirty = true;
     }
 
     m_viewportSize = newSize;
     m_gridSize = vp->gridSize();
-    m_gridColor = vp->gridColor();
+    m_gridColor = newGridColor;
     m_backgroundColor = vp->backgroundColor();
+
+    qDebug() << "Synchronized - Size:" << m_viewportSize << "Grid Size:" << m_gridSize << "Grid Color:" << m_gridColor;
 }
 
 void CircuitRenderer::render()
@@ -140,16 +143,28 @@ void CircuitRenderer::initializeGL()
         }
     )";
 
-    QString fragmentShader = version + R"(
-        #ifdef GL_ES
-        precision mediump float;
-        #endif
-        out vec4 FragColor;
-        uniform vec4 gridColor;
-        void main() {
-            FragColor = gridColor;
-        }
-    )";
+    QString fragmentShader;
+    if (isES)
+    {
+        fragmentShader = version + R"(
+            precision mediump float;
+            uniform vec4 gridColor;
+            out vec4 FragColor;
+            void main() {
+                FragColor = gridColor;
+            }
+        )";
+    }
+    else
+    {
+        fragmentShader = version + R"(
+            uniform vec4 gridColor;
+            out vec4 FragColor;
+            void main() {
+                FragColor = gridColor;
+            }
+        )";
+    }
 
     if (!m_gridProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, vertexShader))
         qWarning() << "Vertex Shader Error:" << m_gridProgram->log();
@@ -195,7 +210,7 @@ void CircuitRenderer::updateGridGeometry()
 
 void CircuitRenderer::renderGrid()
 {
-    if (!m_gridProgram)
+    if (!m_gridProgram || m_viewportSize.isEmpty())
         return;
 
     m_gridProgram->bind();
@@ -204,10 +219,22 @@ void CircuitRenderer::renderGrid()
     projection.ortho(0, m_viewportSize.width(), m_viewportSize.height(), 0, -1, 1);
 
     m_gridProgram->setUniformValue("projection", projection);
-    m_gridProgram->setUniformValue("gridColor", m_gridColor);
+
+    // Convert QColor to QVector4D for proper uniform setting
+    QVector4D colorVec(m_gridColor.redF(), m_gridColor.greenF(),
+                       m_gridColor.blueF(), m_gridColor.alphaF());
+    m_gridProgram->setUniformValue("gridColor", colorVec);
 
     m_gridVAO.bind();
 
-    int vertexCount = m_gridVBO.size() / (2 * sizeof(float));
+    // Calculate vertex count based on grid lines
+    int verticalLines = (m_viewportSize.width() / m_gridSize) + 1;
+    int horizontalLines = (m_viewportSize.height() / m_gridSize) + 1;
+    int vertexCount = (verticalLines + horizontalLines) * 2;
+
+    // Set line width to make grid more visible
+    glLineWidth(1.0f);
+
+    qDebug() << "Rendering grid with" << vertexCount << "vertices, color:" << m_gridColor;
     glDrawArrays(GL_LINES, 0, vertexCount);
 }
